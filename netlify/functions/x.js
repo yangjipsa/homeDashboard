@@ -3,7 +3,7 @@ export default async (req, context) => {
   const urlObj = new URL(req.url);
   const limit = Math.min(parseInt(urlObj.searchParams.get('limit') || '5', 10), 10);
 
-  const BEARER = process.env.TWITTER_BEARER_TOKEN;
+  const BEARER = process.env.1951112969246347264yangjipsa;
   if (!BEARER) {
     return new Response(JSON.stringify({ error: 'Missing TWITTER_BEARER_TOKEN' }), {
       status: 500,
