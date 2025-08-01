@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>트럼프 최근 글 & 업비트 시세 (10분 자동 갱신)</title>
+  <style>
+    :root { --max: 980px; --gap: 16px; }
+    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, 'Noto Sans KR', Apple SD Gothic Neo, 'Malgun Gothic', sans-serif; margin:0; background:#0b1220; color:#e8eefc; }
+    header { max-width: var(--max); margin: 28px auto 16px; padding:0 16px; }
+    h1 { font-size: 1.4rem; margin:0 0 4px; }
+    .meta { color:#a9b4d0; font-size:.95rem; }
+    .grid { max-width: var(--max); margin: 0 auto 40px; padding:0 16px; display:grid; gap:var(--gap); grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+    .card { background:#121a2b; border:1px solid #1d2740; border-radius:14px; padding:14px; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+    .card h2 { font-size:1.05rem; margin:0 0 10px; color:#b8c6e8; display:flex; align-items:center; gap:8px; }
+    .list { display:flex; flex-direction:column; gap:12px; }
+    .item { padding:12px; border-radius:10px; background:#0f1626; border:1px solid #1a2440; }
+    .row { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .time { color:#9fb0d9; font-size:.87rem; white-space:nowrap; }
+    .text { margin:6px 0 0; line-height:1.5; color:#e8eefc; }
+    .text a { color:#a9d3ff; text-decoration:underline; }
+    .price-table { width:100%; border-collapse:collapse; }
+    .price-table th, .price-table td { text-align:left; padding:10px 8px; border-bottom:1px solid #1a2440; }
+    .price-table th { color:#a9b4d0; font-weight:600; }
+    .price { font-variant-numeric: tabular-nums; }
+    .chip { font-size:.8rem; padding:2px 8px; border-radius:999px; border:1px solid #31406a; color:#b8c6e8; background:#0f1729; }
+    .footer { max-width: var(--max); margin: 0 auto 40px; padding:0 16px; color:#95a7d6; font-size:.9rem; }
+    .warn { color:#ffdc8a; }
+    .err { color:#ff9a9a; }
+    .spinner { display:inline-block; width:14px; height:14px; border:2px solid #31406a; border-top-color:#a9d3ff; border-radius:50%; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>트럼프 최근 글 & 업비트 시세</h1>
+    <div class="meta">
+      10분마다 자동 갱신됨 · <span id="last-updated">로딩 중…</span> · 시간대: Asia/Seoul
+    </div>
+  </header>
+
+  <section class="grid">
+    <article class="card">
+      <h2>🕊️ X(트위터) @realDonaldTrump <span class="chip">최근 5개</span></h2>
+      <div id="x-list" class="list">
+        <div class="item"><span class="spinner"></span> 불러오는 중…</div>
+      </div>
+      <div id="x-note" class="meta" style="margin-top:8px;"></div>
+    </article>
+
+    <article class="card">
+      <h2>🗣️ Truth Social @realDonaldTrump <span class="chip">최근 5개</span></h2>
+      <div id="truth-list" class="list">
+        <div class="item"><span class="spinner"></span> 불러오는 중…</div>
+      </div>
+      <div id="truth-note" class="meta" style="margin-top:8px;"></div>
+    </article>
+
+    <article class="card">
+      <h2>💱 업비트 시세 (KRW) <span class="chip">BTC / ETH / XRP</span></h2>
+      <table class="price-table" id="upbit-table">
+        <thead>
+          <tr><th>자산</th><th>가격(KRW)</th><th>변동률(24h)</th><th>기준시각</th></tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="4"><span class="spinner"></span> 불러오는 중…</td></tr>
+        </tbody>
+      </table>
+      <div class="meta" style="margin-top:8px;">데이터 제공: Upbit Public API</div>
+    </article>
+  </section>
+
+  <div class="footer">
+    ⚠️ <span class="warn">X(트위터) API는 인증 토큰이 필요</span>합니다. Netlify 환경 변수 <code>TWITTER_BEARER_TOKEN</code> 설정 후 동작합니다.
+    Truth Social은 공개 API로 동작하지만, 간헐적 변경/속도 제한이 있을 수 있습니다.
+  </div>
+
+  <script>
+    const KST = 'Asia/Seoul';
+    const fmtDate = (iso) => new Intl.DateTimeFormat('ko-KR', {
+      dateStyle: 'medium', timeStyle: 'short', timeZone: KST
+    }).format(new Date(iso));
+
+    const setLastUpdated = () => {
+      const now = new Date();
+      document.getElementById('last-updated').textContent =
+        new Intl.DateTimeFormat('ko-KR', { dateStyle:'medium', timeStyle:'medium', timeZone: KST }).format(now);
+    };
+
+    // 간단한 HTML sanitization (a, br, p만 허용)
+    function sanitizeHTML(html) {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const allowed = ['A','BR','P'];
+      const walker = document.createTreeWalker(doc.body, NodeFilter.SHOW_ELEMENT, null);
+      const toRemove = [];
+      while (walker.nextNode()) {
+        const el = walker.currentNode;
+        if (!allowed.includes(el.tagName)) {
+          // <span> 등은 텍스트만 남기고 치환
+          const textNode = doc.createTextNode(el.textContent || '');
+          el.replaceWith(textNode);
+        } else if (el.tagName === 'A') {
+          // 링크는 target, rel만 살림
+          el.setAttribute('target', '_blank');
+          el.setAttribute('rel', 'noopener noreferrer');
+        }
+      }
+      return doc.body.innerHTML;
+    }
+
+    async function fetchX() {
+      const list = document.getElementById('x-list');
+      const note = document.getElementById('x-note');
+      try {
+        const res = await fetch('/.netlify/functions/x?limit=5');
+        if (!res.ok) throw new Error('X API 호출 실패: ' + res.status);
+        const data = await res.json();
+        const posts = data.posts || [];
+        if (!posts.length) {
+          list.innerHTML = '<div class="item">표시할 트윗이 없습니다.</div>';
+          return;
+        }
+        list.innerHTML = posts.map(p => `
+          <div class="item">
+            <div class="row">
+              <div class="time">${fmtDate(p.created_at)}</div>
+              <a class="chip" href="${p.url}" target="_blank" rel="noopener noreferrer">원문</a>
+            </div>
+            <div class="text">${sanitizeHTML(p.html || p.text)}</div>
+          </div>
+        `).join('');
+        note.textContent = '데이터 출처: X API';
+      } catch (e) {
+        list.innerHTML = `<div class="item err">불러오기 오류: ${e.message}</div>`;
+        note.textContent = '';
+      }
+    }
+
+    async function fetchTruth() {
+      const list = document.getElementById('truth-list');
+      const note = document.getElementById('truth-note');
+      try {
+        const res = await fetch('/.netlify/functions/truth?limit=5');
+        if (!res.ok) throw new Error('Truth Social API 호출 실패: ' + res.status);
+        const data = await res.json();
+        const posts = data.posts || [];
+        if (!posts.length) {
+          list.innerHTML = '<div class="item">표시할 포스트가 없습니다.</div>';
+          return;
+        }
+        list.innerHTML = posts.map(p => `
+          <div class="item">
+            <div class="row">
+              <div class="time">${fmtDate(p.created_at)}</div>
+              <a class="chip" href="${p.url}" target="_blank" rel="noopener noreferrer">원문</a>
+            </div>
+            <div class="text">${sanitizeHTML(p.html || p.text)}</div>
+          </div>
+        `).join('');
+        note.textContent = '데이터 출처: Truth Social Public API';
+      } catch (e) {
+        list.innerHTML = `<div class="item err">불러오기 오류: ${e.message}</div>`;
+        note.textContent = '';
+      }
+    }
+
+    async function fetchUpbit() {
+      const tbody = document.querySelector('#upbit-table tbody');
+      try {
+        const url = 'https://api.upbit.com/v1/ticker?markets=KRW-BTC,KRW-ETH,KRW-XRP';
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('Upbit API 호출 실패: ' + res.status);
+        const data = await res.json();
+        const rows = {
+          'KRW-BTC': 'BTC',
+          'KRW-ETH': 'ETH',
+          'KRW-XRP': 'XRP',
+        };
+        // Upbit 필드: trade_price, signed_change_rate, trade_timestamp
+        const html = data
+          .sort((a,b)=>a.market.localeCompare(b.market))
+          .map(t => {
+            const asset = rows[t.market] || t.market;
+            const price = Math.round(t.trade_price).toLocaleString('ko-KR');
+            const rate = (t.signed_change_rate * 100).toFixed(2);
+            const ts = new Date(t.trade_timestamp); // ms
+            const when = new Intl.DateTimeFormat('ko-KR',{ dateStyle:'medium', timeStyle:'short', timeZone: KST }).format(ts);
+            return `<tr>
+              <td>${asset}</td>
+              <td class="price">${price}</td>
+              <td class="price" style="color:${t.signed_change_rate>=0?'#77e0a1':'#ff9a9a'}">${rate}%</td>
+              <td>${when}</td>
+            </tr>`;
+          }).join('');
+        tbody.innerHTML = html;
+      } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="4" class="err">불러오기 오류: ${e.message}</td></tr>`;
+      }
+    }
+
+    async function refreshAll() {
+      setLastUpdated();
+      await Promise.all([fetchX(), fetchTruth(), fetchUpbit()]);
+    }
+
+    // 최초 로드 + 10분(600,000ms)마다 갱신
+    refreshAll();
+    setInterval(refreshAll, 600000);
+  </script>
+</body>
+</html>
